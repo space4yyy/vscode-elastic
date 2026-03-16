@@ -50,14 +50,18 @@
         "url": "https://github.com/hsen-dev/vscode-elastic.git"
     },
     "activationEvents": [
-        "onLanguage:es",
         "onCommand:extension.execute",
-        "onCommand:extension.setHost"
+        "onCommand:elastic.execute"
     ],
     "contributes": {
         "commands": [
             {
                 "command": "extension.setHost",
+                "title": "Elasticsearch: Set Host",
+                "category": "ES"
+            },
+            {
+                "command": "elastic.setHost",
                 "title": "Elasticsearch: Set Host",
                 "category": "ES"
             }
@@ -102,6 +106,11 @@
                     "type": "string",
                     "default": "http://localhost:9200",
                     "description": "Elasticsearch Host"
+                },
+                "elastic.defaultHost": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Default Elasticsearch host to use when no environment is selected (e.g. http://elastic:pass@192.168.16.28:9200)"
                 }
             }
         },

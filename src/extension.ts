@@ -58,27 +58,27 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(vscode.languages.registerCompletionItemProvider(languages, esCompletionHover, '/', '?', '&', '"'));
     context.subscriptions.push(vscode.languages.registerHoverProvider(languages, esCompletionHover));
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand('extension.execute', (em: ElasticMatch) => {
-            if (!esMatches && vscode.window.activeTextEditor) {
-                checkEditor(vscode.window.activeTextEditor.document);
-            }
-            if (!em && esMatches) {
-                em = esMatches.Selection;
-            }
-            if (em) {
-                executeQuery(context, resultsProvider, em);
-            } else {
-                vscode.window.showErrorMessage('No active Elasticsearch query selection.');
-            }
-        }),
-    );
+    const executeHandler = (em: ElasticMatch) => {
+        if (!esMatches && vscode.window.activeTextEditor) {
+            checkEditor(vscode.window.activeTextEditor.document);
+        }
+        if (!em && esMatches) {
+            em = esMatches.Selection;
+        }
+        if (em) {
+            executeQuery(context, resultsProvider, em);
+        } else {
+            vscode.window.showErrorMessage('No active Elasticsearch query selection.');
+        }
+    };
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand('extension.setHost', () => {
-            setHost(context);
-        }),
-    );
+    const setHostHandler = () => { setHost(context); };
+
+    // Register both 'extension.*' and 'elastic.*' command IDs for compatibility
+    context.subscriptions.push(vscode.commands.registerCommand('extension.execute', executeHandler));
+    context.subscriptions.push(vscode.commands.registerCommand('elastic.execute', executeHandler));
+    context.subscriptions.push(vscode.commands.registerCommand('extension.setHost', setHostHandler));
+    context.subscriptions.push(vscode.commands.registerCommand('elastic.setHost', setHostHandler));
 
     vscode.commands.registerCommand('extension.setClip', (uri, query) => {
         // var ncp = require('copy-paste');
@@ -171,8 +171,6 @@ export function updateStatusBar(context: vscode.ExtensionContext) {
         const displayHost = host.length > 25 ? host.substring(0, 22) + '...' : host;
         hostStatusBarItem.text = `$(database) ES: ${displayHost}`;
     }
-    
-    hostStatusBarItem.tooltip = `Current Elasticsearch Host: ${host}\nClick to change configuration.`;
 }
 
 async function setHost(context: vscode.ExtensionContext): Promise<string> {
@@ -216,7 +214,6 @@ async function setHost(context: vscode.ExtensionContext): Promise<string> {
                 
                 // Save to global user settings (true flag)
                 await config.update('elastic.environments', currentEnvs, true);
-                vscode.window.showInformationMessage(`Saved new environment '${envName.trim()}' -> ${host}`);
             }
         } else {
             return host;
@@ -227,14 +224,17 @@ async function setHost(context: vscode.ExtensionContext): Promise<string> {
 
     context.workspaceState.update('elasticsearch.host', host);
     vscode.workspace.getConfiguration().update('elasticsearch.host', host);
-    vscode.window.showInformationMessage(`Elasticsearch host set to ${selected.label !== 'Enter manually...' ? selected.label + ' (' + host + ')' : host}`);
+    vscode.window.showInformationMessage(`ES host → ${selected.label !== 'Enter manually...' ? selected.label + ' (' + host + ')' : host}`);
     
     updateStatusBar(context);
     return host || 'localhost:9200';
 }
 
 export function getHost(context: vscode.ExtensionContext): string {
-    return context.workspaceState.get('elasticsearch.host') || vscode.workspace.getConfiguration().get('elasticsearch.host') || vscode.workspace.getConfiguration().get('elastic.host', 'localhost:9200');
+    return context.workspaceState.get('elasticsearch.host')
+        || vscode.workspace.getConfiguration().get('elasticsearch.host')
+        || vscode.workspace.getConfiguration().get('elastic.defaultHost')
+        || vscode.workspace.getConfiguration().get('elastic.host', 'localhost:9200');
 }
 
 export async function executeQuery(context: vscode.ExtensionContext, resultsProvider: ElasticContentProvider, em: ElasticMatch) {
