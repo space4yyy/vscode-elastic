@@ -9,7 +9,7 @@ export class ElasticItem {
 }
 
 export class ElasticMatch {
-    static RegexMatch: RegExp = /^(GET|POST|DELETE|PUT)\s+([A-Za-z0-9\-\._~:\/#\[\]@!$&'"%\(\)\*+,;=`?]+)\s*$/gim;
+    static RegexMatch: RegExp = /^(GET|POST|DELETE|PUT)\s+([A-Za-z0-9\-\._~:\/#\[\]@!$&'"%\(\)\*+,;=`?]+)\s*$/im;
     Error: ElasticItem;
     Path: ElasticItem;
     Body: ElasticItem;
@@ -75,9 +75,15 @@ export class ElasticMatch {
         this.Body.Text = jsonText;
 
         try {
-            if (!this.IsBulk) JSON.parse(stripJsonComments(jsonText));
-            this.HasBody = true;
-            this.Range = new vscode.Range(this.Method.Range.start, this.Body.Range.end);
+            const stripped = stripJsonComments(jsonText).trim();
+            if (stripped.length > 0) {
+                if (!this.IsBulk) JSON.parse(stripped);
+                this.HasBody = true;
+                this.Range = new vscode.Range(this.Method.Range.start, this.Body.Range.end);
+            } else {
+                this.HasBody = false;
+                this.Range = new vscode.Range(this.Method.Range.start, this.Path.Range.end);
+            }
         } catch (error: any) {
             // console.error(error.message)
             this.HasBody = false;

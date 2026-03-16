@@ -60,10 +60,17 @@ export async function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('extension.execute', (em: ElasticMatch) => {
-            if (!em) {
+            if (!esMatches && vscode.window.activeTextEditor) {
+                checkEditor(vscode.window.activeTextEditor.document);
+            }
+            if (!em && esMatches) {
                 em = esMatches.Selection;
             }
-            executeQuery(context, resultsProvider, em);
+            if (em) {
+                executeQuery(context, resultsProvider, em);
+            } else {
+                vscode.window.showErrorMessage('No active Elasticsearch query selection.');
+            }
         }),
     );
 
@@ -115,22 +122,119 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         }),
     );
+
+    // Create the global status bar item
+    hostStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    hostStatusBarItem.command = 'extension.setHost';
+    context.subscriptions.push(hostStatusBarItem);
+    
+    // Initialize its value
+    updateStatusBar(context);
+    
+    // Show it if we are currently handling an ES file, otherwise hide
+    if (vscode.window.activeTextEditor && vscode.window.activeTextEditor.document.languageId === 'es') {
+        hostStatusBarItem.show();
+    }
+    
+    vscode.window.onDidChangeActiveTextEditor(editor => {
+        if (editor && editor.document.languageId === 'es') {
+            hostStatusBarItem.show();
+        } else {
+            hostStatusBarItem.hide();
+        }
+    });
+}
+
+// Global variable for our status bar item
+let hostStatusBarItem: vscode.StatusBarItem;
+
+export function updateStatusBar(context: vscode.ExtensionContext) {
+    if (!hostStatusBarItem) return;
+    
+    const host = getHost(context);
+    const environments: any = vscode.workspace.getConfiguration().get('elastic.environments') || {};
+    
+    // Try to find if the current host matches any named environment
+    let matchedEnvName = null;
+    for (const [name, url] of Object.entries(environments)) {
+        if (url === host) {
+            matchedEnvName = name;
+            break;
+        }
+    }
+    
+    // Set the status bar text
+    if (matchedEnvName) {
+        hostStatusBarItem.text = `$(database) ES: ${matchedEnvName}`;
+    } else {
+        // Truncate host if it's too long
+        const displayHost = host.length > 25 ? host.substring(0, 22) + '...' : host;
+        hostStatusBarItem.text = `$(database) ES: ${displayHost}`;
+    }
+    
+    hostStatusBarItem.tooltip = `Current Elasticsearch Host: ${host}\nClick to change configuration.`;
 }
 
 async function setHost(context: vscode.ExtensionContext): Promise<string> {
-    const host = await vscode.window.showInputBox(<vscode.InputBoxOptions>{
-        prompt: 'Please enter the elastic host',
-        ignoreFocusOut: true,
-        value: getHost(context),
+    const environments: any = vscode.workspace.getConfiguration().get('elastic.environments') || {};
+    const items: vscode.QuickPickItem[] = Object.keys(environments).map(name => ({
+        label: name,
+        description: environments[name]
+    }));
+    items.push({ label: 'Enter manually...', description: 'Type the host URL directly' });
+
+    const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select an Elasticsearch environment',
+        ignoreFocusOut: true
     });
+
+    let host = getHost(context);
+    if (!selected) {
+        return host;
+    }
+
+    if (selected.label === 'Enter manually...') {
+        const inputHost = await vscode.window.showInputBox(<vscode.InputBoxOptions>{
+            prompt: 'Please enter the elastic host',
+            ignoreFocusOut: true,
+            value: host,
+        });
+        if (inputHost) {
+            host = inputHost;
+            
+            // Ask if they want to save this new host configuration
+            const envName = await vscode.window.showInputBox({
+                prompt: 'Save this environment as (leave blank to use temporarily without saving)',
+                ignoreFocusOut: true,
+                placeHolder: 'e.g., prod, staging, my-cluster'
+            });
+
+            if (envName && envName.trim() !== '') {
+                const config = vscode.workspace.getConfiguration();
+                const currentEnvs: any = config.get('elastic.environments') || {};
+                currentEnvs[envName.trim()] = host;
+                
+                // Save to global user settings (true flag)
+                await config.update('elastic.environments', currentEnvs, true);
+                vscode.window.showInformationMessage(`Saved new environment '${envName.trim()}' -> ${host}`);
+            }
+        } else {
+            return host;
+        }
+    } else {
+        host = selected.description || host;
+    }
 
     context.workspaceState.update('elasticsearch.host', host);
     vscode.workspace.getConfiguration().update('elasticsearch.host', host);
+    vscode.window.showInformationMessage(`Elasticsearch host set to ${selected.label !== 'Enter manually...' ? selected.label + ' (' + host + ')' : host}`);
+    
+    updateStatusBar(context);
     return host || 'localhost:9200';
 }
 
 export function getHost(context: vscode.ExtensionContext): string {
-    return context.workspaceState.get('elasticsearch.host') || vscode.workspace.getConfiguration().get('elasticsearch.host', 'localhost:9200');
+    return context.workspaceState.get('elasticsearch.host') || vscode.workspace.getConfiguration().get('elasticsearch.host') || vscode.workspace.getConfiguration().get('elastic.host', 'localhost:9200');
 }
 
 export async function executeQuery(context: vscode.ExtensionContext, resultsProvider: ElasticContentProvider, em: ElasticMatch) {
@@ -147,13 +251,23 @@ export async function executeQuery(context: vscode.ExtensionContext, resultsProv
     let response: any;
     try {
         const body = stripJsonComments(em.Body.Text);
-        let url = 'http://' + host + (em.Path.Text.startsWith('/') ? '' : '/') + em.Path.Text;
-        response = await axios({
+        const hostStr = host.trim();
+        let url = (hostStr.startsWith('http://') || hostStr.startsWith('https://'))
+            ? hostStr
+            : 'http://' + hostStr;
+        url += (em.Path.Text.startsWith('/') ? '' : '/') + em.Path.Text;
+
+        const requestConfig: any = {
             url,
             method: em.Method.Text as any,
-            data: body,
             headers: { 'Content-Type': em.IsBulk ? 'application/x-ndjson' : 'application/json' },
-        }).catch(error => error as AxiosError<any, any>);
+        };
+
+        if (body && body !== '""' && body.trim() !== '') {
+            requestConfig.data = body;
+        }
+
+        response = await axios(requestConfig).catch(error => error as AxiosError<any, any>);
     } catch (error) {
         response = error;
     }
@@ -169,7 +283,8 @@ export async function executeQuery(context: vscode.ExtensionContext, resultsProv
         try {
             const config = vscode.workspace.getConfiguration('editor');
             const tabSize = +(config.get('tabSize') as number);
-            results = JSON.stringify(error.isAxiosError ? error.response?.data : data.data, null, tabSize);
+            let rawData = (error && error.isAxiosError) ? error.response?.data : data.data;
+            results = typeof rawData === 'string' ? rawData : JSON.stringify(rawData, null, tabSize);
         } catch (error: any) {
             results = data.data || error.response?.data || error.message;
         }
@@ -206,4 +321,4 @@ function showResult(result: string, column?: vscode.ViewColumn): Thenable<void> 
 }
 
 // this method is called when your extension is deactivated
-export function deactivate() {}
+export function deactivate() { }

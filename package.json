@@ -86,6 +86,13 @@
         "configuration": {
             "title": "Elasticsearch",
             "properties": {
+                "elastic.environments": {
+                    "type": "object",
+                    "default": {
+                        "local": "http://localhost:9200"
+                    },
+                    "description": "Optional mapping of environment names to Elasticsearch host URLs"
+                },
                 "elastic.showResultAsDocument": {
                     "type": "boolean",
                     "default": true,
