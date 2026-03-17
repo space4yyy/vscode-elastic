@@ -83,7 +83,9 @@ export class JsonPanel {
 
     public ensurePanelValid(title: string): void {
         if (this.Panel == null) {
-            this.Panel = vscode.window.createWebviewPanel('Test', title, vscode.ViewColumn.Two, {});
+            this.Panel = vscode.window.createWebviewPanel('Test', title, vscode.ViewColumn.Two, {
+                enableFindWidget: true,
+            });
             this.Panel.onDidDispose(() => {
                 this.Panel = null;
             });

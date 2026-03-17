@@ -242,7 +242,7 @@ export async function executeQuery(context: vscode.ExtensionContext, resultsProv
     const startTime = new Date().getTime();
 
     const config = vscode.workspace.getConfiguration();
-    var asDocument = config.get('elasticsearch.showResultAsDocument');
+    var asDocument = config.get('elastic.showResultAsDocument');
 
     const sbi = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     sbi.text = '$(search) Executing query ...';
