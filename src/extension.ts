@@ -8,6 +8,7 @@ import { ElasticContentProvider } from './ElasticContentProvider';
 import { ElasticDecoration } from './ElasticDecoration';
 import { ElasticMatch } from './ElasticMatch';
 import { ElasticMatches } from './ElasticMatches';
+import { ElasticResultProvider } from './ElasticResultProvider';
 import axios, { AxiosError, AxiosResponse } from 'axios';
 import stripJsonComments from './helpers';
 import { JsonPanel } from './jsonPanel';
@@ -20,6 +21,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     let resultsProvider = new ElasticContentProvider();
     vscode.workspace.registerTextDocumentContentProvider('elasticsearch', resultsProvider);
+
+    const elasticResultProvider = new ElasticResultProvider();
+    vscode.workspace.registerTextDocumentContentProvider(ElasticResultProvider.scheme, elasticResultProvider);
 
     let esMatches: ElasticMatches;
     let decoration: ElasticDecoration;
@@ -66,7 +70,7 @@ export async function activate(context: vscode.ExtensionContext) {
             em = esMatches.Selection;
         }
         if (em) {
-            executeQuery(context, resultsProvider, em);
+            executeQuery(context, resultsProvider, elasticResultProvider, em);
         } else {
             vscode.window.showErrorMessage('No active Elasticsearch query selection.');
         }
@@ -237,7 +241,7 @@ export function getHost(context: vscode.ExtensionContext): string {
         || vscode.workspace.getConfiguration().get('elastic.host', 'localhost:9200');
 }
 
-export async function executeQuery(context: vscode.ExtensionContext, resultsProvider: ElasticContentProvider, em: ElasticMatch) {
+export async function executeQuery(context: vscode.ExtensionContext, resultsProvider: ElasticContentProvider, elasticResultProvider: ElasticResultProvider, em: ElasticMatch) {
     const host = getHost(context);
     const startTime = new Date().getTime();
 
@@ -288,36 +292,19 @@ export async function executeQuery(context: vscode.ExtensionContext, resultsProv
         } catch (error: any) {
             results = data.data || error.response?.data || error.message;
         }
-        showResult(results, vscode.window.activeTextEditor!.viewColumn! + 1);
+        elasticResultProvider.update(results);
+        showResult(ElasticResultProvider.uri, vscode.window.activeTextEditor!.viewColumn! + 1);
     } else {
         jsonPanel.render(results, `ElasticSearch Results[${endTime - startTime}ms]`);
     }
 }
 
-function showResult(result: string, column?: vscode.ViewColumn): Thenable<void> {
-    const tempResultFilePath = path.join(os.homedir(), '.vscode-elastic');
-    const resultFilePath = vscode.workspace.rootPath || tempResultFilePath;
-
-    let uri = vscode.Uri.file(path.join(resultFilePath, 'result.json'));
-    if (!fs.existsSync(uri.fsPath)) {
-        uri = uri.with({ scheme: 'untitled' });
-    }
+function showResult(uri: vscode.Uri, column?: vscode.ViewColumn): Thenable<void> {
     return vscode.workspace
         .openTextDocument(uri)
         .then(textDocument =>
             vscode.window.showTextDocument(textDocument, column ? (column > vscode.ViewColumn.Three ? vscode.ViewColumn.One : column) : undefined, true),
-        )
-        .then(editor => {
-            editor.edit(editorBuilder => {
-                if (editor.document.lineCount > 0) {
-                    const lastLine = editor.document.lineAt(editor.document.lineCount - 1);
-                    editorBuilder.delete(
-                        new vscode.Range(new vscode.Position(0, 0), new vscode.Position(lastLine.range.start.line, lastLine.range.end.character)),
-                    );
-                }
-                editorBuilder.insert(new vscode.Position(0, 0), result);
-            });
-        });
+        ).then(() => { });
 }
 
 // this method is called when your extension is deactivated
