@@ -6,7 +6,7 @@ export class ElasticResultProvider implements vscode.TextDocumentContentProvider
     public readonly onDidChange = this._onDidChange.event;
 
     static scheme = 'elastic-result';
-    static uri = vscode.Uri.parse(`${ElasticResultProvider.scheme}://results.json`);
+    static uri = vscode.Uri.parse(`${ElasticResultProvider.scheme}:ElasticSearch%20Result.json`);
 
     public update(results: string) {
         this._results = results;

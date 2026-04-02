@@ -226,7 +226,7 @@ async function setHost(context: vscode.ExtensionContext): Promise<string> {
         host = selected.description || host;
     }
 
-    context.workspaceState.update('elasticsearch.host', host);
+    context.globalState.update('elasticsearch.host', host);
     vscode.workspace.getConfiguration().update('elasticsearch.host', host);
     vscode.window.showInformationMessage(`ES host → ${selected.label !== 'Enter manually...' ? selected.label + ' (' + host + ')' : host}`);
     
@@ -235,9 +235,9 @@ async function setHost(context: vscode.ExtensionContext): Promise<string> {
 }
 
 export function getHost(context: vscode.ExtensionContext): string {
-    return context.workspaceState.get('elasticsearch.host')
-        || vscode.workspace.getConfiguration().get('elasticsearch.host')
+    return context.globalState.get('elasticsearch.host')
         || vscode.workspace.getConfiguration().get('elastic.defaultHost')
+        || vscode.workspace.getConfiguration().get('elasticsearch.host')
         || vscode.workspace.getConfiguration().get('elastic.host', 'localhost:9200');
 }
 
@@ -288,9 +288,12 @@ export async function executeQuery(context: vscode.ExtensionContext, resultsProv
             const config = vscode.workspace.getConfiguration('editor');
             const tabSize = +(config.get('tabSize') as number);
             let rawData = (error && error.isAxiosError) ? error.response?.data : data.data;
+            if (rawData === undefined && error) {
+                rawData = error.message || error.toString();
+            }
             results = typeof rawData === 'string' ? rawData : JSON.stringify(rawData, null, tabSize);
         } catch (error: any) {
-            results = data.data || error.response?.data || error.message;
+            results = data.data || error.response?.data || error.message || error.toString();
         }
         elasticResultProvider.update(results);
         showResult(ElasticResultProvider.uri, vscode.window.activeTextEditor!.viewColumn! + 1);
